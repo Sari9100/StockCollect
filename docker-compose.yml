@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  stock-collector:
+    image: stock-collector
+    build:
+      context: .
+    env_file:
+      - .env
+    container_name: stock-collector

@@ -7,48 +7,115 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import com.example.stockcollect.DTO.StockPriceDTO;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 @Service
 public class StockPriceService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public StockPriceService(RestTemplate restTemplate)
-    {
-        this.restTemplate= restTemplate;
+    public StockPriceService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
     }
 
-    public Double GetTodayClosingPrice(String ticker) {
+    // 공통 HTTP 요청 메서드
+    private JsonNode fetchStockData(String url) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("User-Agent", "Mozilla/5.0");
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+        return objectMapper.readTree(response.getBody());
+    }
+
+    // 오늘의 주식 가격 조회
+    public StockPriceDTO getTodayStockPrice(String ticker) {
         try {
             String url = String.format("https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1d&range=1d", ticker);
+            JsonNode root = fetchStockData(url);
 
-            // 1. Header에 User-Agent 추가
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0"); // 브라우저로 가장
+            JsonNode result = root.path("chart").path("result").get(0);
+            JsonNode indicators = result.path("indicators").path("quote").get(0);
+            JsonNode timestampNode = result.path("timestamp");
 
-            HttpEntity<String> entity = new HttpEntity<>(headers);
+            if (indicators == null || indicators.isMissingNode() || timestampNode.isEmpty()) return null;
 
-            // 2. exchange 방식으로 요청
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-            String json = response.getBody();
+            long timestamp = timestampNode.get(0).asLong();
+            LocalDate date = Instant.ofEpochSecond(timestamp).atZone(ZoneId.of("America/New_York")).toLocalDate();
 
-            // 3. JSON 파싱
-            JsonNode root = objectMapper.readTree(json);
-            JsonNode chart = root.get("chart");
-            JsonNode result = chart.get("result").get(0);
-            JsonNode quote = result.get("indicators").get("quote").get(0);
-            JsonNode close = quote.get("close");
+            return createStockPriceDTO(ticker, date, indicators, 0);
 
-            if (close != null && close.get(0) != null) {
-                return close.get(0).asDouble();
-            }
         } catch (Exception e) {
-            System.err.println("❌ 종가 조회 실패 (" + ticker + "): " + e.getMessage());
+            System.err.printf("❌ 오늘의 종가 수집 실패 (%s): %s\n", ticker, e.getMessage());
+            return null;
         }
-
-        return null;
     }
 
+    // 최근 거래일의 주식 가격 조회
+    public StockPriceDTO getLatestTradingDayStockPrice(String ticker) {
+        try {
+            String url = String.format("https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1d&range=7d", ticker);
+            JsonNode root = fetchStockData(url);
+
+            JsonNode result = root.path("chart").path("result").get(0);
+            JsonNode quote = result.path("indicators").path("quote").get(0);
+            JsonNode timestamps = result.path("timestamp");
+
+            if (quote == null || timestamps == null || timestamps.size() == 0) {
+                System.err.printf("❌ 데이터 없음: %s\n", ticker);
+                return null;
+            }
+
+            int lastIndex = findLastValidIndex(quote, timestamps);
+            if (lastIndex == -1) {
+                System.err.printf("❌ 유효한 종가 데이터 없음: %s\n", ticker);
+                return null;
+            }
+
+            long timestamp = timestamps.get(lastIndex).asLong();
+            LocalDate date = Instant.ofEpochSecond(timestamp).atZone(ZoneId.of("America/New_York")).toLocalDate();
+
+            return createStockPriceDTO(ticker, date, quote, lastIndex);
+
+        } catch (Exception e) {
+            System.err.printf("❌ 최근 거래일 종가 수집 실패 (%s): %s\n", ticker, e.getMessage());
+            return null;
+        }
+    }
+
+    // 오늘의 종가 조회
+    public Double getTodayClosingPrice(String ticker) {
+        StockPriceDTO dto = getTodayStockPrice(ticker);
+        return dto != null ? dto.getClose() : null;
+    }
+
+    // 유효한 마지막 데이터 인덱스 찾기
+    private int findLastValidIndex(JsonNode quote, JsonNode timestamps) {
+        for (int i = timestamps.size() - 1; i >= 0; i--) {
+            JsonNode closeNode = quote.path("close").get(i);
+            if (closeNode != null && !closeNode.isNull()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // StockPriceDTO 객체 생성
+    private StockPriceDTO createStockPriceDTO(String ticker, LocalDate date, JsonNode indicators, int index) {
+        StockPriceDTO dto = new StockPriceDTO();
+        dto.setTicker(ticker);
+        dto.setDate(date);
+        dto.setOpen(indicators.path("open").get(index).asDouble());
+        dto.setHigh(indicators.path("high").get(index).asDouble());
+        dto.setLow(indicators.path("low").get(index).asDouble());
+        dto.setClose(indicators.path("close").get(index).asDouble());
+        dto.setVolume(indicators.path("volume").get(index).asLong());
+        return dto;
+    }
 }

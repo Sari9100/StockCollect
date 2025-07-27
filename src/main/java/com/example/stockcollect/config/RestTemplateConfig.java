@@ -10,6 +10,6 @@ public class RestTemplateConfig {
 
     @Bean
     public RestTemplate restTemplate() {
-        return new RestTemplate();
+        return new RestTemplate(); // 기본 구현체 사용
     }
 }
