@@ -1,0 +1,5 @@
+{"properties": [{
+  "name": "notion.api.token",
+  "type": "java.lang.String",
+  "description": "A description for 'notion.api.token'"
+}]}
