@@ -21,8 +21,8 @@ public class SchedulerService {
         this.stockPriceService = stockPriceService;
     }
 
-    // 스케줄러: 월요일부터 토요일까지 매일 오전 6시 10분에 실행
-    @Scheduled(cron = "0 10 6 * * MON-SAT", zone = "Asia/Seoul")
+    // 스케줄러: 월요일부터 토요일까지 매일 오전 7시 10분에 실행
+    @Scheduled(cron = "0 20 7 * * MON-SAT", zone = "Asia/Seoul")
     public void collectAndSaveAllClosingPrices() {
         logger.info("📅 스케줄러 실행: 종가 저장 시작");
 
